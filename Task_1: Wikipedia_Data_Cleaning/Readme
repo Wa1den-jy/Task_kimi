@@ -1,0 +1,34 @@
+## 数据清洗策略
+
+| 步骤 | 规则 / 操作 |
+|------|-------------|
+| **抽取** | 使用 **WikiExtractor** 将 `XML dump` 解析为若干 `json` 文件，字段：`id` / `title` / `url` / `text` |
+| **去模板** | 正则 `{{…}}` → 删除 |
+| **去引用** | 正则 `<ref … </ref>` → 删除 |
+| **去括注** | 正则 `（…）` 和 `(...)` → 删除 |
+| **空白归一化** | 合并连续空格 / 换行为单空格 |
+| **长度过滤** | 文本长度 \< **100 字符** → 丢弃 |
+| **英文占比过滤** | 英文字符占比 \> **40 %** → 丢弃 |
+| **多进程** | `multiprocessing.Pool` 并行文件级清洗 |
+| **抽样** | 结果写入 `zhwiki_clean.jsonl`，随后随机抽取 `N` 条生成 `zhwiki_sample_N.jsonl` |
+
+---
+
+| 问题 | 原因 | 解决方案 |
+|------|------|----------|
+| **WikiExtractor 启动失败**<br>`No module named wikiextractor.__main__` | Windows pip 版无 `__main__` 入口 | 依次尝试 `python -m wikiextractor` → `python -m wikiextractor.WikiExtractor` → `wikiextractor` 可执行脚本 |
+| **GBK 编码报错**<br>`✓` 无法输出 | Windows CMD 默认 GBK | 统一使用 ASCII 提示符 (`[OK]` 等) |
+| **内存占用高** | 多进程同时处理大文件 | 提供 `--processes` 参数；低内存机器调小并行度或分批处理 |
+| **进度条长时间停滞** | 网络/磁盘 IO 慢 | 下载阶段 `tqdm` 字节计数；提取阶段 WikiExtractor 会持续打印页数，耐心等待 |
+| **噪声文本残留** | 固定阈值不足以覆盖所有噪声 | 可调整 `min_len` 或 `en_ratio_th`；在 `clean_text()` 中追加更严格规则 |
+| **重复样本** | 重定向 / 多版本导致 | 后续可引入 MinHash/SimHash 做去重 |
+
+---
+
+```bash
+pip install wikiextractor mwparserfromhell ujson tqdm requests
+python wiki_clean_pipeline.py \
+  --url https://dumps.wikimedia.org/zhwiki/20250201/zhwiki-20250201-pages-articles-multistream.xml.bz2 \
+  --work_dir ./data \
+  --sample_size 1000 \
+  --processes 8
